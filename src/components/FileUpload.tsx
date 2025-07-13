@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Upload, FileText, AlertCircle, CheckCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
+import { ServerAPI, ServerCredentials } from "@/services/api";
 
 interface FileUploadProps {
   onFileProcessed: (servers: any[]) => void;
@@ -61,12 +62,12 @@ export const FileUpload = ({ onFileProcessed }: FileUploadProps) => {
     try {
       const text = await file.text();
       const lines = text.split('\n').filter(line => line.trim() !== '');
-      const servers = [];
+      const serverCredentials: ServerCredentials[] = [];
 
+      // Parse and validate credentials
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         
-        // Expected format: host:port@username:password
         if (!line.includes('@') || !line.includes(':')) {
           throw new Error(`Invalid format on line ${i + 1}. Expected format: host:port@username:password`);
         }
@@ -77,7 +78,6 @@ export const FileUpload = ({ onFileProcessed }: FileUploadProps) => {
           throw new Error(`Invalid format on line ${i + 1}. Expected format: host:port@username:password`);
         }
         
-        // Parse host:port
         const hostPortMatch = hostPortPart.match(/^(.+):(\d+)$/);
         if (!hostPortMatch) {
           throw new Error(`Invalid host:port format on line ${i + 1}. Expected: host:port`);
@@ -90,7 +90,6 @@ export const FileUpload = ({ onFileProcessed }: FileUploadProps) => {
           throw new Error(`Invalid port number on line ${i + 1}: ${hostPortMatch[2]}`);
         }
         
-        // Parse username:password
         const colonIndex = credentialsPart.indexOf(':');
         if (colonIndex === -1) {
           throw new Error(`Invalid credentials format on line ${i + 1}. Expected: username:password`);
@@ -103,33 +102,62 @@ export const FileUpload = ({ onFileProcessed }: FileUploadProps) => {
           throw new Error(`Username or password cannot be empty on line ${i + 1}`);
         }
 
-        servers.push({
-          id: `${host.trim()}-${Date.now()}-${i}`,
-          host: host.trim(),
-          port: port,
-          username: username.trim(),
-          password: password.trim(),
-          status: Math.random() > 0.3 ? "online" : "offline", // Mock status
-          system: generateRandomSystem(),
-          cpu: generateRandomCPU(),
-          cores: Math.floor(Math.random() * 24) + 1,
-          gpu: Math.random() > 0.5 ? "No discrete GPU detected" : "NVIDIA GeForce RTX 3080",
-          ram: `${(Math.random() * 32 + 1).toFixed(1)}Gi`,
-          storage: `${Math.floor(Math.random() * 500 + 100)}GB`,
-          lastSeen: generateRandomTime(),
+        serverCredentials.push({ host: host.trim(), port, username: username.trim(), password: password.trim() });
+      }
+
+      // Test connections and get server status
+      toast({
+        title: "Testing connections...",
+        description: `Checking ${serverCredentials.length} servers`,
+      });
+
+      try {
+        const serverStatuses = await ServerAPI.checkMultipleServers(serverCredentials);
+        
+        setUploadStatus("success");
+        onFileProcessed(serverStatuses);
+        
+        const onlineCount = serverStatuses.filter(s => s.status === 'online').length;
+        
+        toast({
+          title: "Success!",
+          description: `${onlineCount}/${serverStatuses.length} servers are online`,
+        });
+      } catch (apiError) {
+        // Fallback to mock data if backend is not available
+        console.warn('Backend not available, using mock data:', apiError);
+        
+        const mockServers = serverCredentials.map((cred, i) => ({
+          id: `${cred.host.trim()}-${Date.now()}-${i}`,
+          host: cred.host.trim(),
+          port: cred.port,
+          username: cred.username.trim(),
+          status: Math.random() > 0.3 ? "online" as const : "offline" as const,
+          lastChecked: new Date().toLocaleString(),
+          responseTime: Math.floor(Math.random() * 200 + 50),
+          systemInfo: {
+            architecture: "x86_64",
+            ram: `${(Math.random() * 32 + 1).toFixed(1)}Gi`,
+            cpuModel: generateRandomCPU(),
+            cpuCores: Math.floor(Math.random() * 24) + 1,
+            gpu: Math.random() > 0.5 ? "No discrete GPU detected" : "NVIDIA GeForce RTX 3080",
+            storage: `${Math.floor(Math.random() * 500 + 100)}GB`,
+            uptime: generateRandomTime(),
+            loadAverage: `${(Math.random() * 2).toFixed(2)}, ${(Math.random() * 2).toFixed(2)}, ${(Math.random() * 2).toFixed(2)}`
+          }
+        }));
+
+        setUploadStatus("success");
+        onFileProcessed(mockServers);
+        
+        toast({
+          title: "Using mock data",
+          description: `Deploy with Python backend for real SSH connections. Loaded ${mockServers.length} servers.`,
+          variant: "default",
         });
       }
 
-      onFileProcessed(servers);
-      setUploadStatus("success");
-      
-      toast({
-        title: "File uploaded successfully",
-        description: `${servers.length} servers loaded`,
-      });
-
     } catch (error) {
-      console.error('Error processing file:', error);
       setUploadStatus("error");
       toast({
         title: "Error processing file",

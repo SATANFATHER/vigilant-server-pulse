@@ -3,6 +3,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { ServerTable, ServerData } from "@/components/ServerTable";
 import { FileUpload } from "@/components/FileUpload";
 import { useToast } from "@/hooks/use-toast";
+import { ServerAPI } from "@/services/api";
 
 const Index = () => {
   const [activeItem, setActiveItem] = useState("ssh");
@@ -13,64 +14,129 @@ const Index = () => {
     setServers(newServers);
   };
 
-  const handleConnect = (serverId: string) => {
+  const handleConnect = async (serverId: string) => {
     const server = servers.find(s => s.id === serverId);
-    if (server) {
-      toast({
-        title: "SSH Connection",
-        description: `Connecting to ${server.host}:${server.port}...`,
-      });
-      
-      // Simulate connection attempt
-      setTimeout(() => {
-        const success = Math.random() > 0.2; // 80% success rate
-        if (success) {
-          toast({
-            title: "Connection Successful",
-            description: `Connected to ${server.username}@${server.host}`,
-          });
-          // Update server status
-          setServers(prev => prev.map(s => 
-            s.id === serverId ? { ...s, status: "online" as const } : s
-          ));
-        } else {
-          toast({
-            title: "Connection Failed",
-            description: `Failed to connect to ${server.host}. Check credentials.`,
-            variant: "destructive",
-          });
-          setServers(prev => prev.map(s => 
-            s.id === serverId ? { ...s, status: "offline" as const } : s
-          ));
-        }
-      }, 2000);
-    }
-  };
+    if (!server) return;
 
-  const handleRefresh = (serverId: string) => {
-    const server = servers.find(s => s.id === serverId);
-    if (server) {
-      toast({
-        title: "Refreshing Server Data",
-        description: `Updating ${server.host}...`,
+    // Update status to connecting
+    setServers(prev => prev.map(s => 
+      s.id === serverId 
+        ? { ...s, status: "connecting" }
+        : s
+    ));
+
+    toast({
+      title: "SSH Connection",
+      description: `Connecting to ${server.host}:${server.port}...`,
+    });
+
+    try {
+      const connectionResult = await ServerAPI.testConnection({
+        host: server.host,
+        port: server.port,
+        username: server.username,
+        password: server.password || ''
       });
-      
-      // Simulate refresh
-      setTimeout(() => {
+
+      if (connectionResult.success) {
+        // Get system information
+        const systemInfo = await ServerAPI.getSystemInfo({
+          host: server.host,
+          port: server.port,
+          username: server.username,
+          password: server.password || ''
+        });
+
         setServers(prev => prev.map(s => 
           s.id === serverId 
             ? { 
                 ...s, 
-                lastSeen: "Just now",
-                status: Math.random() > 0.2 ? "online" as const : "offline" as const
-              } 
+                status: "online", 
+                lastChecked: new Date().toLocaleString(),
+                responseTime: connectionResult.responseTime,
+                systemInfo
+              }
             : s
         ));
+        
         toast({
-          title: "Server Data Updated",
-          description: `${server.host} information refreshed`,
+          title: "Connection successful",
+          description: `Connected to ${server.host}:${server.port} (${connectionResult.responseTime}ms)`,
         });
-      }, 1500);
+      } else {
+        throw new Error(connectionResult.error || 'Connection failed');
+      }
+    } catch (error) {
+      // Fallback to simulation if backend not available
+      console.warn('API not available, using simulation:', error);
+      
+      const success = Math.random() > 0.2; // 80% success rate
+      
+      setServers(prev => prev.map(s => 
+        s.id === serverId 
+          ? { 
+              ...s, 
+              status: success ? "online" : "offline", 
+              lastChecked: new Date().toLocaleString(),
+              responseTime: success ? Math.floor(Math.random() * 200 + 50) : undefined,
+              error: success ? undefined : 'Connection timeout'
+            }
+          : s
+      ));
+      
+      if (success) {
+        toast({
+          title: "Connection Successful (Mock)",
+          description: `Connected to ${server.username}@${server.host} - Deploy backend for real connections`,
+        });
+      } else {
+        toast({
+          title: "Connection Failed (Mock)",
+          description: `Failed to connect to ${server.host}. Deploy backend for real SSH.`,
+          variant: "destructive",
+        });
+      }
+    }
+  };
+
+  const handleRefresh = async (serverId: string) => {
+    const server = servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    toast({
+      title: "Refreshing Server Data",
+      description: `Updating ${server.host}...`,
+    });
+
+    try {
+      const refreshedServer = await ServerAPI.refreshServer(serverId);
+      
+      setServers(prev => prev.map(s => 
+        s.id === serverId ? refreshedServer : s
+      ));
+      
+      toast({
+        title: "Server refreshed",
+        description: `Updated data for ${server.host}`,
+      });
+    } catch (error) {
+      // Fallback to simulation
+      console.warn('API not available, using simulation:', error);
+      
+      setServers(prev => prev.map(s => 
+        s.id === serverId 
+          ? { 
+              ...s, 
+              lastChecked: new Date().toLocaleString(),
+              status: Math.random() > 0.2 ? "online" : "offline"
+            } 
+          : s
+      ));
+      
+      toast({
+        title: "Server Data Updated (Mock)",
+        description: `${server.host} information refreshed - Deploy backend for real data`,
+      });
     }
   };
 
