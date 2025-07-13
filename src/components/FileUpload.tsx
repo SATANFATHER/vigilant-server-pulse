@@ -65,17 +65,42 @@ export const FileUpload = ({ onFileProcessed }: FileUploadProps) => {
 
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
-        const parts = line.split(',');
         
-        if (parts.length !== 4) {
-          throw new Error(`Invalid format on line ${i + 1}. Expected format: host,port,username,password`);
+        // Expected format: host:port@username:password
+        if (!line.includes('@') || !line.includes(':')) {
+          throw new Error(`Invalid format on line ${i + 1}. Expected format: host:port@username:password`);
         }
-
-        const [host, portStr, username, password] = parts;
-        const port = parseInt(portStr.trim());
+        
+        const [hostPortPart, credentialsPart] = line.split('@');
+        
+        if (!credentialsPart || !hostPortPart) {
+          throw new Error(`Invalid format on line ${i + 1}. Expected format: host:port@username:password`);
+        }
+        
+        // Parse host:port
+        const hostPortMatch = hostPortPart.match(/^(.+):(\d+)$/);
+        if (!hostPortMatch) {
+          throw new Error(`Invalid host:port format on line ${i + 1}. Expected: host:port`);
+        }
+        
+        const host = hostPortMatch[1];
+        const port = parseInt(hostPortMatch[2]);
         
         if (isNaN(port) || port < 1 || port > 65535) {
-          throw new Error(`Invalid port number on line ${i + 1}: ${portStr}`);
+          throw new Error(`Invalid port number on line ${i + 1}: ${hostPortMatch[2]}`);
+        }
+        
+        // Parse username:password
+        const colonIndex = credentialsPart.indexOf(':');
+        if (colonIndex === -1) {
+          throw new Error(`Invalid credentials format on line ${i + 1}. Expected: username:password`);
+        }
+        
+        const username = credentialsPart.substring(0, colonIndex);
+        const password = credentialsPart.substring(colonIndex + 1);
+        
+        if (!username || !password) {
+          throw new Error(`Username or password cannot be empty on line ${i + 1}`);
         }
 
         servers.push({
@@ -188,7 +213,7 @@ export const FileUpload = ({ onFileProcessed }: FileUploadProps) => {
                 {isProcessing ? "Processing file..." : "Drop your input.txt file here"}
               </h3>
               <p className="text-sm text-muted-foreground mb-4">
-                Format: Each line should contain "host,port,username,password"
+                Format: Each line should contain "host:port@username:password"
               </p>
               
               <Button 
